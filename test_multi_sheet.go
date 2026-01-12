@@ -18,32 +18,34 @@ func main() {
 		"data": map[string]interface{}{
 			"sheets": []map[string]interface{}{
 				{
-					"name": "预算汇总表",
+					"name":        "预算汇总表1",
+					"template_id": "default",
 					"items": []map[string]interface{}{
 						{
-							"序号":          1,
-							"品牌":          "小米",
-							"区域":          "全屋智能主控系统",
-							"系统说明":      "1、AI智能语音、自定义设备各种场景...",
-							"单位":          "项",
-							"工程量":        1,
-							"预算价":        1928,
-							"单项预算合价":  1928,
+							"序号":     1,
+							"品牌":     "小米",
+							"区域":     "全屋智能主控系统",
+							"系统说明":   "1、AI智能语音、自定义设备各种场景",
+							"单位":     "项",
+							"工程量":    1,
+							"预算价":    1928.00,
+							"单项预算合价": 1928.00,
 						},
 					},
 				},
 				{
-					"name": "报价单",
+					"name":        "预算汇总表2",
+					"template_id": "default",
 					"items": []map[string]interface{}{
 						{
-							"品名":      "大班台",
-							"规格":      "2400*2000*750",
-							"材质说明":  "环保要求：甲醛释放量≤5mg/100g。\n2、基材：E0级\n3、木皮表面",
-							"颜色":      "黑色",
-							"数量":      2,
-							"单价":      10141.00,
-							"总价":      20282.00,
-							"备注":      "",
+							"序号":     1,
+							"品牌":     "FSXRT",
+							"区域":     "智能灯光",
+							"系统说明":   "1、自定义色温：智能双色温",
+							"单位":     "项",
+							"工程量":    1,
+							"预算价":    6759.00,
+							"单项预算合价": 6759.00,
 						},
 					},
 				},
@@ -76,13 +78,13 @@ func main() {
 		}
 
 		// 保存为文件
-		err = ioutil.WriteFile("test_multi_sheet.xlsx", body, 0644)
+		err = ioutil.WriteFile("test_multi_sheet_new.xlsx", body, 0644)
 		if err != nil {
 			fmt.Printf("保存文件失败: %v\n", err)
 			return
 		}
 
-		fmt.Println("多sheet页导出成功！文件已保存为 test_multi_sheet.xlsx")
+		fmt.Println("多sheet页导出成功！文件已保存为 test_multi_sheet_new.xlsx")
 	} else {
 		// 读取错误响应
 		errBody, _ := ioutil.ReadAll(resp.Body)

@@ -2,6 +2,9 @@ package export
 
 import (
 	"fmt"
+	"io/ioutil"
+	"net/http"
+	"os"
 	"strings"
 
 	"office-export-server/internal/model"
@@ -52,16 +55,37 @@ func (s *ExcelService) ExportExcel(req *model.ExportRequest) ([]byte, error) {
 
 	// 遍历sheets数组，为每个sheet创建新的sheet页
 	defaultSheet := f.GetSheetName(0)
+	// 用于记录已使用的sheet名称，确保名称唯一
+	sheetNameMap := make(map[string]int)
 	for i, sheetData := range sheets {
 		sheetMap, ok := sheetData.(map[string]interface{})
 		if !ok {
 			continue
 		}
-
 		// 获取sheet名称
 		sheetName, ok := sheetMap["name"].(string)
 		if !ok || sheetName == "" {
 			sheetName = fmt.Sprintf("Sheet%d", i+1)
+		}
+
+		// 确保sheet名称唯一
+		originalSheetName := sheetName
+		count := 0
+		for {
+			if _, exists := sheetNameMap[sheetName]; !exists {
+				// 名称唯一，记录使用
+				sheetNameMap[sheetName] = count
+				break
+			}
+			// 名称已存在，添加序号
+			count++
+			sheetName = fmt.Sprintf("%s(%d)", originalSheetName, count)
+		}
+
+		// 获取当前sheet的模板ID（优先使用sheet级别的template_id)
+		sheetTemplateID := templateID
+		if sheetTemplateIDFromData, ok := sheetMap["template_id"].(string); ok && sheetTemplateIDFromData != "" {
+			sheetTemplateID = sheetTemplateIDFromData
 		}
 
 		// 创建新的sheet页
@@ -73,13 +97,13 @@ func (s *ExcelService) ExportExcel(req *model.ExportRequest) ([]byte, error) {
 		// 填充当前sheet的数据
 		// 创建临时请求对象，包含当前sheet的数据
 		tempReq := &model.ExportRequest{
-			TemplateID: templateID,
+			TemplateID: sheetTemplateID,
 			DataType:   req.DataType,
 			Data:       sheetMap,
 		}
 
 		// 填充数据到当前sheet
-		if err := s.fillTemplateData(f, sheetName, templateID, tempReq); err != nil {
+		if err := s.fillTemplateData(f, sheetName, sheetTemplateID, tempReq); err != nil {
 			return nil, fmt.Errorf("failed to fill template data for sheet %s: %v", sheetName, err)
 		}
 	}
@@ -109,6 +133,8 @@ func (s *ExcelService) fillTemplateData(f *excelize.File, sheetName, templateID 
 		return s.fillSimpleTemplateData(f, sheetName, req)
 	case "quote":
 		return s.fillQuoteTemplateData(f, sheetName, req)
+	case "cover":
+		return s.fillCoverTemplateData(f, sheetName, req)
 	default:
 		return s.fillDefaultTemplateData(f, sheetName, req)
 	}
@@ -187,31 +213,6 @@ func (s *ExcelService) fillSimpleTemplateData(f *excelize.File, sheetName string
 			f.SetCellStyle(sheetName, fmt.Sprintf("A%d", row), fmt.Sprintf("D%d", row), dataStyle)
 		}
 	}
-
-	// 动态调整数据行高，适应内容
-	// if items != nil && len(items) > 0 {
-	// 	for i := 3; i <= len(items)+2; i++ {
-	// 		// 对于每一行，根据内容长度动态调整行高
-	// 		// 计算所需的行高（基础高度 + 内容长度/每行字符数 * 行高）
-	// 		baseHeight := 20.0
-	// 		// 获取该行的主要内容单元格（例如B列和D列）
-	// 		contentCell := fmt.Sprintf("B%d", i)
-	// 		content, _ := f.GetCellValue(sheetName, contentCell)
-	// 		// 计算所需行数（假设每行能显示30个字符）
-	// 		lines := len(content) / 30
-	// 		if len(content)%30 > 0 {
-	// 			lines++
-	// 		}
-	// 		// 设置行高（最小20，最大100）
-	// 		height := baseHeight * float64(lines)
-	// 		if height < 20 {
-	// 			height = 20
-	// 		} else if height > 100 {
-	// 			height = 100
-	// 		}
-	// 		f.SetRowHeight(sheetName, i, height)
-	// 	}
-	// }
 
 	return nil
 }
@@ -350,6 +351,295 @@ func (s *ExcelService) fillQuoteTemplateData(f *excelize.File, sheetName string,
 
 	return nil
 }
+func addLineBreak(s string) string {
+	var res []rune
+	for _, c := range s {
+		res = append(res, c)
+		res = append(res, '\n') // 每个字后添加换行符
+	}
+	// 移除最后一个多余的换行符
+	return strings.TrimSuffix(string(res), "\n")
+}
+func (s *ExcelService) fillCoverTemplateData(f *excelize.File, sheetName string, req *model.ExportRequest) error {
+
+	contentStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Family: "微软雅黑",
+			Bold:   true,
+			Size:   12,
+			Color:  "#000000",
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "left",
+			Vertical:   "center",
+		},
+	})
+	verticalTitleStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Family: "微软雅黑",
+			Bold:   true,
+			Size:   26,
+			Color:  "#000000",
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+			WrapText:   true,
+		},
+	})
+	inputUnderlineStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Family: "微软雅黑",
+			Bold:   false,
+			Size:   12,
+		},
+		Border: []excelize.Border{
+			{Type: "bottom", Color: "#000000", Style: 1}, // 仅下边框
+		},
+		Alignment: &excelize.Alignment{
+			Vertical: "center",
+		},
+	})
+
+	coverLogo, ok := req.Data["coverLogoUrl"].(string)
+	fmt.Print(coverLogo)
+	if ok {
+		// 使用工具函数插入图片
+		picOptions := &excelize.GraphicOptions{
+			ScaleX: 0.5, // 水平缩放
+			ScaleY: 0.5, // 垂直缩放
+		}
+		if err := s.addPictureFromURL(f, sheetName, "A1", coverLogo, picOptions); err != nil {
+			fmt.Printf("插入图片失败：%v\n", err)
+			// 图片插入失败不影响整体导出，继续执行
+		}
+	}
+
+	f.SetCellValue(sheetName, "D4", "——全屋智能家居综合解决方案提供商")
+	f.SetCellStyle(sheetName, "D4", "D4", contentStyle)
+
+	title := "全屋智能家居方案预算"
+	verticalTtiel := addLineBreak(title)
+	f.SetCellValue(sheetName, "E8", verticalTtiel)
+	f.SetCellStyle(sheetName, "E8", "E8", verticalTitleStyle)
+	f.SetColWidth(sheetName, "E", "E", 10)
+
+	projectName, ok := req.Data["projectName"].(string)
+
+	if !ok || projectName == "" {
+		projectName = ""
+	}
+
+	projectNameRrichText := []excelize.RichTextRun{
+		{
+			Text: "项目名称：",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   true,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+		{
+			Text: projectName,
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   false,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "B12", projectNameRrichText)
+	err := f.MergeCell(sheetName, "B12", "I12") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "B12", "I12", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 12, 30)
+
+	projectAddressRrichText := []excelize.RichTextRun{
+		{
+			Text: "项目地址：",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   true,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "B13", projectAddressRrichText)
+	err = f.MergeCell(sheetName, "B13", "I13") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "B13", "I13", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 13, 30)
+
+	projectContentRrichText := []excelize.RichTextRun{
+		{
+			Text: "方案内容：",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   true,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "B14", projectContentRrichText)
+	err = f.MergeCell(sheetName, "B14", "I14") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "B14", "I14", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 14, 30)
+
+	projectRatifyRrichText := []excelize.RichTextRun{
+		{
+			Text: "批准：",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   true,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "B15", projectRatifyRrichText)
+	err = f.MergeCell(sheetName, "B15", "D15") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "B15", "D15", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 15, 30)
+
+	projectCheckrichText := []excelize.RichTextRun{
+		{
+			Text: "审核",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   false,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "E15", projectCheckrichText)
+	err = f.MergeCell(sheetName, "E15", "F15") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "E15", "F15", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 15, 30)
+
+	projectDesignerRichText := []excelize.RichTextRun{
+		{
+			Text: "设计师",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   false,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "G15", projectDesignerRichText)
+	err = f.MergeCell(sheetName, "G15", "I15") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "G15", "I15", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 15, 30)
+
+	projectDateRrichText := []excelize.RichTextRun{
+		{
+			Text: "日期：",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   true,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "B16", projectDateRrichText)
+	err = f.MergeCell(sheetName, "B16", "I16") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "B16", "I16", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 16, 30)
+
+	projectContactRrichText := []excelize.RichTextRun{
+		{
+			Text: "联系人：",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   true,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "B17", projectContactRrichText)
+	err = f.MergeCell(sheetName, "B17", "D17") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "B17", "D17", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 17, 30)
+
+	projectPhoneichText := []excelize.RichTextRun{
+		{
+			Text: "电话",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   false,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "E17", projectPhoneichText)
+	err = f.MergeCell(sheetName, "E17", "F17") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "E17", "F17", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 17, 30)
+
+	projectWxChenCodeRichText := []excelize.RichTextRun{
+		{
+			Text: "微信号",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   false,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "G17", projectWxChenCodeRichText)
+	err = f.MergeCell(sheetName, "G17", "I17") // 输入框区域
+	if err != nil {
+		fmt.Printf("合并单元格失败：%v\n", err)
+		return err
+	}
+	f.SetCellStyle(sheetName, "G17", "I17", inputUnderlineStyle)
+	f.SetRowHeight(sheetName, 17, 30)
+	return nil
+}
 
 // processHeaders 处理表头
 func (s *ExcelService) processHeaders(f *excelize.File, sheetName string, headers []interface{}) error {
@@ -482,7 +772,7 @@ func (s *ExcelService) processMerges(f *excelize.File, sheetName string, merges 
 func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string, req *model.ExportRequest) error {
 	// 设置默认列宽
 	columnWidths := map[string]float64{
-		"A": 5,
+		"A": 8,
 		"B": 15,
 		"C": 15,
 		"D": 80,
@@ -505,13 +795,20 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 	// 标题样式
 	titleStyle, _ := f.NewStyle(&excelize.Style{
 		Font: &excelize.Font{
-			Bold:  true,
-			Size:  16,
-			Color: "#000000",
+			Family: "微软雅黑",
+			Bold:   true,
+			Size:   20,
+			Color:  "#000000",
 		},
 		Alignment: &excelize.Alignment{
 			Horizontal: "center",
 			Vertical:   "center",
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "#000000", Style: 1},
+			{Type: "top", Color: "#000000", Style: 1},
+			{Type: "right", Color: "#000000", Style: 1},
+			{Type: "bottom", Color: "#000000", Style: 1},
 		},
 	})
 
@@ -525,11 +822,12 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 		Fill: excelize.Fill{
 			Type:    "pattern",
 			Pattern: 1,
-			Color:   []string{"#E0EBF5"},
+			Color:   []string{"#d0cece"},
 		},
 		Alignment: &excelize.Alignment{
 			Horizontal: "center",
 			Vertical:   "center",
+			WrapText:   true,
 		},
 		Border: []excelize.Border{
 			{Type: "left", Color: "#000000", Style: 1},
@@ -568,22 +866,34 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 		},
 	})
 
+	mergesStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Family: "微软雅黑",
+			Bold:   true,
+			Size:   14,
+			Color:  "#000000",
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "center",
+			Vertical:   "center",
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "#000000", Style: 1},
+			{Type: "top", Color: "#000000", Style: 1},
+			{Type: "right", Color: "#000000", Style: 1},
+			{Type: "bottom", Color: "#000000", Style: 1},
+		},
+	})
+
 	// 合并单元格
 	merges := []string{
 		"A1:H1", // 主标题
-		"A2:C2", // 项目名称
-		"D2:G2", // 设计师
-		"H2:H3", // 参考户型图
-		"A3:C3", // 客户经理
-		"D3:G3", // 设计师
-		"A4:A5", // 序号
-		"B4:B5", // 品牌
-		"C4:C5", // 区域
-		"D4:D5", // 系统说明
-		"E4:E5", // 单位
-		"F4:F5", // 工程量
-		"G4:G5", // 预算价
-		"H4:H5", // 单项预算合价
+		"A2:D2", // 项目名称
+		"E2:F3", // 参考户型图
+		"G2:H3", // 参考户型图-图片
+		"A4:B4",
+		"C4:D4",
+		"E4:H4",
 	}
 	for _, merge := range merges {
 		// 解析合并范围，拆分为起始和结束单元格
@@ -593,91 +903,100 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 		}
 	}
 
+	logoUrl, ok := req.Data["coverLogoUrl"].(string)
+
+	if ok {
+		// 使用工具函数插入图片
+		picOptions := &excelize.GraphicOptions{
+			ScaleX: 0.3, // 水平缩放
+			ScaleY: 0.3, // 垂直缩放
+		}
+		if err := s.addPictureFromURL(f, sheetName, "A1", logoUrl, picOptions); err != nil {
+			fmt.Printf("插入图片失败：%v\n", err)
+			// 图片插入失败不影响整体导出，继续执行
+		}
+	}
+
 	// 填写标题信息
 	f.SetCellValue(sheetName, "A1", "全屋智能家居方案A套餐预算汇总表")
 	f.SetCellStyle(sheetName, "A1", "H1", titleStyle)
+	f.SetRowHeight(sheetName, 5, 42)
 
 	// 填写项目基本信息
-	f.SetCellValue(sheetName, "A2", "项目名称：")
-	f.SetCellValue(sheetName, "B2", "三房二厅全屋智能家居项目")
-	f.SetCellValue(sheetName, "D2", "设计师：")
-	f.SetCellValue(sheetName, "H2", "参考户型图")
-	f.SetCellValue(sheetName, "A3", "客户经理：")
-	f.SetCellValue(sheetName, "D3", "设计师：")
+	projectName := []excelize.RichTextRun{
+		{
+			Text: "项目名称：",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   true,
+				Size:   14,
+				Color:  "#000000",
+			},
+		},
+		{
+			Text: "项目名称",
+			Font: &excelize.Font{
+				Family: "微软雅黑",
+				Bold:   false,
+				Size:   12,
+				Color:  "#000000",
+			},
+		},
+	}
+	f.SetCellRichText(sheetName, "A2", projectName)
+	f.SetCellValue(sheetName, "E2", "参考户型图")
+	f.SetCellValue(sheetName, "A3", "客户经理：								设计师:								")
 
-	// 插入参考户型图
-	// 图片URL
-	// imageURL := "https://www.zhijiayi.com/upload/houseConfig/20201228/3537592706212974.png"
-	// // 从远程URL下载图片
-	// resp, err := http.Get(imageURL)
-	// if err != nil {
-	// 	fmt.Printf("Failed to download reference house image: %v\n", err)
-	// } else {
-	// 	defer resp.Body.Close()
-	// 	// 读取图片内容
-	// 	imageBytes, err := ioutil.ReadAll(resp.Body)
-	// 	if err != nil {
-	// 		fmt.Printf("Failed to read reference house image: %v\n", err)
-	// 	} else {
-	// 		// 创建临时文件保存图片
-	// 		tempFile, err := os.CreateTemp("", "house-image-*.png")
-	// 		if err != nil {
-	// 			fmt.Printf("Failed to create temp file: %v\n", err)
-	// 		} else {
-	// 			defer func() {
-	// 				tempFile.Close()
-	// 				os.Remove(tempFile.Name())
-	// 			}()
-	// 			// 写入图片内容
-	// 			if _, err := tempFile.Write(imageBytes); err != nil {
-	// 				fmt.Printf("Failed to write temp file: %v\n", err)
-	// 			} else {
-	// 				// 刷新文件缓冲区
-	// 				tempFile.Sync()
-	// 				// 设置图片位置和尺寸（H2:H3合并单元格）
-	// 				printObject := true
-	// 				// 设置行高，为图片留出空间
-	// 				f.SetRowHeight(sheetName, 2, 120) // 设置第2行高度为120磅
-	// 				f.SetRowHeight(sheetName, 3, 120) // 设置第3行高度为120磅
+	houseOptions := []struct {
+		text    string
+		checked bool
+		offsetX float64 // 水平偏移（避免多个复选框重叠）
+	}{
+		{"别墅", false, 0},
+		{"大平层", false, 40},
+		{"户型房", true, 80}, // 截图中“户型房”是勾选状态
+		{"商铺", false, 120},
+		{"办公室", false, 160},
+		{"展厅", false, 200},
+		{"超市", false, 240},
+		{"商场", false, 280},
+		{"客房", false, 320},
+		{"公寓", false, 360},
+		{"民宿", false, 400},
+		{"其他", false, 440},
+	}
 
-	// 				// 设置列宽，为图片留出空间
-	// 				f.SetColWidth(sheetName, "H", "H", 15) // 设置H列宽度为15列宽
+	for _, item := range houseOptions {
+		err := f.AddFormControl(sheetName, excelize.FormControl{
+			Cell:    "C4",
+			Type:    excelize.FormControlCheckBox,
+			Text:    item.text,
+			Checked: item.checked,
+			Width:   14,
+			Height:  14,
+		})
+		if err != nil {
+			fmt.Printf("创建复选框「%s」失败：%v\n", item.text, err)
+			return err
+		}
+	}
 
-	// 				// 使用AddPicture方法，传入临时文件路径，调整缩放比例以达到预期宽高
-	// 				if err := f.AddPicture(
-	// 					sheetName,
-	// 					"H2",
-	// 					tempFile.Name(), // 临时文件路径
-	// 					&excelize.GraphicOptions{
-	// 						// 调整缩放比例，使图片达到预期大小
-	// 						ScaleX:          0.6, // 水平缩放比例
-	// 						ScaleY:          0.8, // 垂直缩放比例
-	// 						OffsetX:         5,   // 轻微偏移，使图片居中
-	// 						OffsetY:         5,   // 轻微偏移，使图片居中
-	// 						PrintObject:     &printObject,
-	// 						LockAspectRatio: false, // 不锁定宽高比，允许调整缩放比例
-	// 					},
-	// 				); err != nil {
-	// 					// 如果图片插入失败，继续执行，不影响其他功能
-	// 					fmt.Printf("Failed to add reference house image: %v\n", err)
-	// 				}
-	// 			}
-	// 		}
-	// 	}
-	// }
-
+	f.SetCellValue(sheetName, "A4", "户型分类")
+	f.SetCellValue(sheetName, "E4", "套内面积(m²)：约80~110m²")
+	f.SetCellStyle(sheetName, "A4", "H4", dataStyle)
 	// 填写表头
-	f.SetCellValue(sheetName, "A4", "序号")
-	f.SetCellValue(sheetName, "B4", "品牌")
-	f.SetCellValue(sheetName, "C4", "区域")
-	f.SetCellValue(sheetName, "D4", "系统说明")
-	f.SetCellValue(sheetName, "E4", "单位")
-	f.SetCellValue(sheetName, "F4", "工程量")
-	f.SetCellValue(sheetName, "G4", "预算价（元）")
-	f.SetCellValue(sheetName, "H4", "单项预算合价（元）")
+	f.SetCellValue(sheetName, "A5", "序号")
+	f.SetCellValue(sheetName, "B5", "品牌")
+	f.SetCellValue(sheetName, "C5", "区域")
+	f.SetCellValue(sheetName, "D5", "系统说明")
+	f.SetCellValue(sheetName, "E5", "单位")
+	f.SetCellValue(sheetName, "F5", "工程量")
+	f.SetCellValue(sheetName, "G5", "预算价（元）")
+	f.SetCellValue(sheetName, "H5", "单项预算合价（元）")
 
+	f.SetCellStyle(sheetName, "E2", "F3", mergesStyle)
 	// 设置表头样式
-	f.SetCellStyle(sheetName, "A4", "H5", headerStyle)
+	f.SetCellStyle(sheetName, "A5", "H5", headerStyle)
 
 	// 获取数据
 	items, ok := req.Data["items"].([]interface{})
@@ -759,29 +1078,76 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 	f.SetCellValue(sheetName, fmt.Sprintf("B%d", reminderRow), "1、该报价为根据报价需求提供的方案报价，实际成交价以签约合同为准。 2、报价单仅供预算参考，具体内容以实际签订的合同为准。")
 	f.MergeCell(sheetName, fmt.Sprintf("B%d", reminderRow), fmt.Sprintf("H%d", reminderRow))
 	f.SetCellStyle(sheetName, fmt.Sprintf("A%d", reminderRow), fmt.Sprintf("H%d", reminderRow), dataStyle)
+	return nil
+}
 
-	// 动态调整数据行高，适应内容
-	// for i := 6; i <= reminderRow; i++ {
-	// 	// 对于每一行，根据内容长度动态调整行高
-	// 	// 计算所需的行高（基础高度 + 内容长度/每行字符数 * 行高）
-	// 	baseHeight := 20.0
-	// 	// 获取该行的主要内容单元格（系统说明列D）
-	// 	contentCell := fmt.Sprintf("D%d", i)
-	// 	content, _ := f.GetCellValue(sheetName, contentCell)
-	// 	// 计算所需行数（假设每行能显示30个字符）
-	// 	lines := len(content) / 30
-	// 	if len(content)%30 > 0 {
-	// 		lines++
-	// 	}
-	// 	// 设置行高（最小20，最大120）
-	// 	height := baseHeight * float64(lines)
-	// 	if height < 20 {
-	// 		height = 20
-	// 	} else if height > 120 {
-	// 		height = 120
-	// 	}
-	// 	f.SetRowHeight(sheetName, i, height)
-	// }
+// addPictureFromURL 从URL添加图片到Excel
+func (s *ExcelService) addPictureFromURL(f *excelize.File, sheetName, cell, imageURL string, options *excelize.GraphicOptions) error {
+	// 从URL下载图片
+	resp, err := http.Get(imageURL)
+	if err != nil {
+		return fmt.Errorf("下载图片失败：%v", err)
+	}
+	defer resp.Body.Close()
+
+	// 读取图片内容
+	imageBytes, readErr := ioutil.ReadAll(resp.Body)
+	if readErr != nil {
+		return fmt.Errorf("读取图片失败：%v", readErr)
+	}
+
+	// 从URL或Content-Type获取图片扩展名
+	ext := "jpg" // 默认扩展名
+	if strings.Contains(imageURL, ".") {
+		// 从URL获取扩展名
+		parts := strings.Split(imageURL, ".")
+		ext = strings.ToLower(parts[len(parts)-1])
+		// 处理URL中的查询参数，如 .png?param=value
+		if strings.Contains(ext, "?") {
+			ext = strings.Split(ext, "?")[0]
+		}
+	} else {
+		// 从Content-Type获取扩展名
+		contentType := resp.Header.Get("Content-Type")
+		switch contentType {
+		case "image/jpeg":
+			ext = "jpg"
+		case "image/png":
+			ext = "png"
+		case "image/gif":
+			ext = "gif"
+		case "image/bmp":
+			ext = "bmp"
+		case "image/webp":
+			ext = "webp"
+		}
+	}
+
+	// 创建带有正确扩展名的临时文件
+	tempFile, tempErr := ioutil.TempFile("", fmt.Sprintf("excel-image-*.%s", ext))
+	if tempErr != nil {
+		return fmt.Errorf("创建临时文件失败：%v", tempErr)
+	}
+	defer func() {
+		tempFile.Close()
+		os.Remove(tempFile.Name())
+	}()
+
+	// 写入图片内容
+	_, writeErr := tempFile.Write(imageBytes)
+	if writeErr != nil {
+		return fmt.Errorf("写入临时文件失败：%v", writeErr)
+	}
+
+	// 刷新并关闭临时文件，确保内容写入磁盘
+	tempFile.Sync()
+	tempFile.Close()
+
+	// 插入图片
+	picErr := f.AddPicture(sheetName, cell, tempFile.Name(), options)
+	if picErr != nil {
+		return fmt.Errorf("插入图片失败：%v", picErr)
+	}
 
 	return nil
 }
