@@ -406,8 +406,8 @@ func (s *ExcelService) fillCoverTemplateData(f *excelize.File, sheetName string,
 	if ok {
 		// 使用工具函数插入图片
 		picOptions := &excelize.GraphicOptions{
-			ScaleX: 0.5, // 水平缩放
-			ScaleY: 0.5, // 垂直缩放
+			ScaleX: 0.3, // 水平缩放
+			ScaleY: 0.3, // 垂直缩放
 		}
 		if err := s.addPictureFromURL(f, sheetName, "A1", coverLogo, picOptions); err != nil {
 			fmt.Printf("插入图片失败：%v\n", err)
@@ -457,7 +457,6 @@ func (s *ExcelService) fillCoverTemplateData(f *excelize.File, sheetName string,
 		return err
 	}
 	f.SetCellStyle(sheetName, "B12", "I12", inputUnderlineStyle)
-	f.SetRowHeight(sheetName, 12, 30)
 
 	projectAddressRrichText := []excelize.RichTextRun{
 		{
@@ -786,12 +785,11 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 	}
 
 	// 设置行高
-	f.SetRowHeight(sheetName, 1, 30) // 标题行固定行高
-	f.SetRowHeight(sheetName, 2, 25) // 项目信息行固定行高
-	f.SetRowHeight(sheetName, 3, 25) // 客户经理行固定行高
+	f.SetRowHeight(sheetName, 1, 42) // 标题行固定行高
+	f.SetRowHeight(sheetName, 2, 42)
+	f.SetRowHeight(sheetName, 3, 42)
 	f.SetRowHeight(sheetName, 4, 25) // 表头行固定行高
-	f.SetRowHeight(sheetName, 5, 25) // 表头行固定行高
-
+	f.SetRowHeight(sheetName, 5, 42)
 	// 标题样式
 	titleStyle, _ := f.NewStyle(&excelize.Style{
 		Font: &excelize.Font{
@@ -812,12 +810,50 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 		},
 	})
 
+	projectStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Family: "微软雅黑",
+			Bold:   false,
+			Size:   14,
+			Color:  "#000000",
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "left",
+			Vertical:   "center",
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "#000000", Style: 1},
+			{Type: "top", Color: "#000000", Style: 1},
+			{Type: "right", Color: "#000000", Style: 1},
+			{Type: "bottom", Color: "#000000", Style: 1},
+		},
+	})
+	customerStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Family: "微软雅黑",
+			Bold:   false,
+			Size:   12,
+			Color:  "#000000",
+		},
+		Alignment: &excelize.Alignment{
+			Horizontal: "left",
+			Vertical:   "center",
+		},
+		Border: []excelize.Border{
+			{Type: "left", Color: "#000000", Style: 1},
+			{Type: "top", Color: "#000000", Style: 1},
+			{Type: "right", Color: "#000000", Style: 1},
+			{Type: "bottom", Color: "#000000", Style: 1},
+		},
+	})
+
 	// 表头样式
 	headerStyle, _ := f.NewStyle(&excelize.Style{
 		Font: &excelize.Font{
-			Bold:  true,
-			Size:  12,
-			Color: "#000000",
+			Family: "微软雅黑",
+			Bold:   true,
+			Size:   12,
+			Color:  "#000000",
 		},
 		Fill: excelize.Fill{
 			Type:    "pattern",
@@ -839,6 +875,12 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 
 	// 数据行样式
 	dataStyle, _ := f.NewStyle(&excelize.Style{
+		Font: &excelize.Font{
+			Family: "微软雅黑",
+			Bold:   false,
+			Size:   12,
+			Color:  "#000000",
+		},
 		Alignment: &excelize.Alignment{
 			Vertical: "center",
 			WrapText: true,
@@ -891,6 +933,7 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 		"A2:D2", // 项目名称
 		"E2:F3", // 参考户型图
 		"G2:H3", // 参考户型图-图片
+		"A3:D3", // 项目地址
 		"A4:B4",
 		"C4:D4",
 		"E4:H4",
@@ -903,13 +946,13 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 		}
 	}
 
-	logoUrl, ok := req.Data["coverLogoUrl"].(string)
+	logoUrl, ok := req.Data["logoUrl"].(string)
 
 	if ok {
 		// 使用工具函数插入图片
 		picOptions := &excelize.GraphicOptions{
-			ScaleX: 0.3, // 水平缩放
-			ScaleY: 0.3, // 垂直缩放
+			ScaleX: 0.2, // 水平缩放
+			ScaleY: 0.1, // 垂直缩放
 		}
 		if err := s.addPictureFromURL(f, sheetName, "A1", logoUrl, picOptions); err != nil {
 			fmt.Printf("插入图片失败：%v\n", err)
@@ -920,7 +963,6 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 	// 填写标题信息
 	f.SetCellValue(sheetName, "A1", "全屋智能家居方案A套餐预算汇总表")
 	f.SetCellStyle(sheetName, "A1", "H1", titleStyle)
-	f.SetRowHeight(sheetName, 5, 42)
 
 	// 填写项目基本信息
 	projectName := []excelize.RichTextRun{
@@ -944,13 +986,30 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 		},
 	}
 	f.SetCellRichText(sheetName, "A2", projectName)
+	f.SetCellStyle(sheetName, "A2", "D2", projectStyle)
 	f.SetCellValue(sheetName, "E2", "参考户型图")
-	f.SetCellValue(sheetName, "A3", "客户经理：								设计师:								")
 
+	floorPlanUrl, ok := req.Data["floorPlanUrl"].(string)
+
+	if ok {
+		// 使用工具函数插入图片
+		picOptions := &excelize.GraphicOptions{
+			ScaleX:  0.3,   // 水平缩放
+			ScaleY:  0.125, // 垂直缩放
+			OffsetX: 26,
+			OffsetY: 6,
+		}
+		if err := s.addPictureFromURL(f, sheetName, "G2", floorPlanUrl, picOptions); err != nil {
+			fmt.Printf("插入图片失败：%v\n", err)
+		}
+	}
+
+	f.SetCellValue(sheetName, "A3", "客户经理：                                                            设计师:                                                                                                  ")
+	f.SetCellStyle(sheetName, "A3", "D3", customerStyle)
 	houseOptions := []struct {
 		text    string
 		checked bool
-		offsetX float64 // 水平偏移（避免多个复选框重叠）
+		offsetX int // 水平偏移（避免多个复选框重叠）
 	}{
 		{"别墅", false, 0},
 		{"大平层", false, 40},
@@ -974,6 +1033,10 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 			Checked: item.checked,
 			Width:   14,
 			Height:  14,
+			Format: excelize.GraphicOptions{
+				OffsetX: item.offsetX,
+				OffsetY: 0,
+			},
 		})
 		if err != nil {
 			fmt.Printf("创建复选框「%s」失败：%v\n", item.text, err)
@@ -1050,14 +1113,15 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 
 	// 添加总计行
 	totalRow := startRow + len(items)
-	f.SetCellValue(sheetName, fmt.Sprintf("A%d", totalRow), "项目合计总价")
-	f.SetCellValue(sheetName, fmt.Sprintf("B%d", totalRow), "（不含增值税）")
+	f.SetCellValue(sheetName, fmt.Sprintf("A%d", totalRow), totalRow)
+	f.SetCellValue(sheetName, fmt.Sprintf("B%d", totalRow), "/")
+	f.SetCellValue(sheetName, fmt.Sprintf("C%d", totalRow), "项目合计总价(不含增值税)")
 	// 使用SetCellFormula方法设置公式，而不是excelize.Formula函数
 	f.SetCellFormula(sheetName, fmt.Sprintf("H%d", totalRow), fmt.Sprintf("SUM(H%d:H%d)", startRow, totalRow-1))
 
 	// 合并总计行
 	// 修复MergeCell调用，使用正确的3参数格式
-	f.MergeCell(sheetName, fmt.Sprintf("A%d", totalRow), fmt.Sprintf("C%d", totalRow))
+	// f.MergeCell(sheetName, fmt.Sprintf("A%d", totalRow), fmt.Sprintf("C%d", totalRow))
 	f.MergeCell(sheetName, fmt.Sprintf("D%d", totalRow), fmt.Sprintf("G%d", totalRow))
 
 	// 设置总计行样式
@@ -1066,7 +1130,9 @@ func (s *ExcelService) processBudgetTemplate(f *excelize.File, sheetName string,
 
 	// 添加大写金额行
 	capitalRow := totalRow + 1
-	f.SetCellValue(sheetName, fmt.Sprintf("A%d", capitalRow), "总价大写（元）")
+	f.SetCellValue(sheetName, fmt.Sprintf("A%d", capitalRow), capitalRow)
+	f.SetCellValue(sheetName, fmt.Sprintf("B%d", capitalRow), "/")
+	f.SetCellValue(sheetName, fmt.Sprintf("C%d", capitalRow), "总价大写(元)")
 	f.SetCellValue(sheetName, fmt.Sprintf("B%d", capitalRow), "贰万贰仟肆佰伍拾玖元贰角整")
 	f.MergeCell(sheetName, fmt.Sprintf("A%d", capitalRow), fmt.Sprintf("C%d", capitalRow))
 	f.MergeCell(sheetName, fmt.Sprintf("D%d", capitalRow), fmt.Sprintf("H%d", capitalRow))

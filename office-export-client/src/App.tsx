@@ -197,6 +197,8 @@ function App() {
               {
                 name: '预算汇总表',
                 title: '全屋智能家居方案A套餐预算汇总表',
+                logoUrl: 'https://img.jbzj.com/file_images/article/202101/2021012110230625.jpg',
+                floorPlanUrl: "https://www.zhhx.top:8088/static/mall/file/image/034a5472d4f28c423adaaaba7c102046.png",
                 "template_id": 'default',
                 items: [
                   {
